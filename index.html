@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Uber Eats 跑單帳務小幫手</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .input-field { @apply w-full p-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none; }
+        /* 防止 iOS 輸入時放大 */
+        input { font-size: 16px !important; } 
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<div id="app" class="max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col">
+    
+    <header class="bg-green-600 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
+        <h1 class="text-xl font-bold">Uber 帳務計算機</h1>
+        <button @click="resetData" class="text-xs bg-green-700 px-3 py-1 rounded border border-green-500">重置今日</button>
+    </header>
+
+    <main class="flex-1 p-5 space-y-6">
+
+        <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2 bg-blue-50 p-4 rounded-xl border border-blue-200 text-center">
+                <div class="text-gray-500 text-sm mb-1">今日淨利 (已扣成本)</div>
+                <div class="text-3xl font-bold text-blue-700 font-mono">${{ formatNumber(netProfit) }}</div>
+            </div>
+
+            <div class="col-span-2 p-4 rounded-xl border text-center transition-colors"
+                 :class="walletBalance < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'">
+                
+                <div class="text-sm font-bold mb-1" :class="walletBalance < 0 ? 'text-red-600' : 'text-green-600'">
+                    {{ walletBalance < 0 ? '⚠️ 需要匯款給 Uber' : '✅ Uber 下週匯給你' }}
+                </div>
+                
+                <div class="text-3xl font-bold font-mono" :class="walletBalance < 0 ? 'text-red-700' : 'text-green-700'">
+                    ${{ formatNumber(Math.abs(walletBalance)) }}
+                </div>
+                
+                <div class="text-xs text-gray-500 mt-2">
+                    {{ walletBalance < 0 ? '現金收太多，這筆錢不屬於你' : '現金收得少，這是你的薪水' }}
+                </div>
+            </div>
+        </div>
+
+        <hr class="border-gray-200">
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2">App 顯示總金額 (行程+獎勵)</label>
+                <input type="number" v-model.number="appEarnings" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right focus:ring-2 focus:ring-green-500 outline-none" placeholder="0">
+                <p class="text-xs text-gray-400 mt-1">請看 Driver App 的「今日行程費用」</p>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2">今日收取現金總額</label>
+                <input type="number" v-model.number="cashCollected" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right text-orange-600 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="0">
+                <p class="text-xs text-gray-400 mt-1">你手上拿到的所有現金單金額</p>
+            </div>
+
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2">今日成本支出 (油錢/餐費)</label>
+                <input type="number" v-model.number="expenses" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right text-gray-600 focus:ring-2 focus:ring-gray-500 outline-none" placeholder="0">
+            </div>
+        </div>
+
+        <div class="bg-gray-50 p-4 rounded-lg text-sm space-y-2 text-gray-600 mt-6">
+            <h3 class="font-bold text-gray-800 mb-2">帳務分析</h3>
+            <div class="flex justify-between">
+                <span>帳面收入:</span>
+                <span>+ ${{ formatNumber(appEarnings) }}</span>
+            </div>
+            <div class="flex justify-between text-red-500">
+                <span>扣除成本:</span>
+                <span>- ${{ formatNumber(expenses) }}</span>
+            </div>
+            <div class="border-t border-gray-300 my-1"></div>
+            <div class="flex justify-between font-bold text-gray-800">
+                <span>實際獲利:</span>
+                <span>${{ formatNumber(netProfit) }}</span>
+            </div>
+            <div class="mt-4 text-xs bg-yellow-100 p-2 rounded text-yellow-800">
+                💡 <strong>小提醒：</strong>
+                如果「Uber 錢包狀態」是紅色，記得要把那筆錢存進刷卡扣款的帳戶，不然會變成欠款喔！
+            </div>
+        </div>
+
+    </main>
+</div>
+
+<script>
+    const { createApp, ref, computed, watch, onMounted } = Vue;
+
+    createApp({
+        setup() {
+            // 資料變數
+            const appEarnings = ref(0);   // App 顯示賺多少
+            const cashCollected = ref(0); // 收了多少現金
+            const expenses = ref(0);      // 油錢成本
+
+            // 1. 初始化：從 LocalStorage 讀取資料 (防止重新整理後消失)
+            onMounted(() => {
+                const savedData = JSON.parse(localStorage.getItem('uberCalcData_v1'));
+                if (savedData) {
+                    // 檢查是否是同一天，如果是隔天了建議重置，這裡先單純讀取
+                    appEarnings.value = savedData.appEarnings || 0;
+                    cashCollected.value = savedData.cashCollected || 0;
+                    expenses.value = savedData.expenses || 0;
+                }
+            });
+
+            // 2. 自動儲存：只要資料變動就存到 LocalStorage
+            watch([appEarnings, cashCollected, expenses], () => {
+                localStorage.setItem('uberCalcData_v1', JSON.stringify({
+                    appEarnings: appEarnings.value,
+                    cashCollected: cashCollected.value,
+                    expenses: expenses.value,
+                    date: new Date().toISOString().split('T')[0]
+                }));
+            });
+
+            // 計算邏輯
+            
+            // Uber 錢包餘額 = 賺的錢 - 已經拿走的現金
+            const walletBalance = computed(() => {
+                return appEarnings.value - cashCollected.value;
+            });
+
+            // 淨利 = 賺的錢 - 成本 (跟現金無關，這是你真實賺的)
+            const netProfit = computed(() => {
+                return appEarnings.value - expenses.value;
+            });
+
+            // 格式化數字 (加逗號)
+            const formatNumber = (num) => {
+                return num.toLocaleString();
+            };
+
+            // 重置按鈕
+            const resetData = () => {
+                if(confirm('確定要清空今日資料嗎？')) {
+                    appEarnings.value = 0;
+                    cashCollected.value = 0;
+                    expenses.value = 0;
+                }
+            };
+
+            return {
+                appEarnings,
+                cashCollected,
+                expenses,
+                walletBalance,
+                netProfit,
+                formatNumber,
+                resetData
+            };
+        }
+    }).mount('#app');
+</script>
+
+</body>
+</html>
