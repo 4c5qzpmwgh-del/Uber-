@@ -3,160 +3,424 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber Eats 跑單帳務小幫手</title>
+    <title>Uber Eats 財務管家 Pro</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        .input-field { @apply w-full p-3 border rounded-lg text-lg focus:ring-2 focus:ring-blue-500 outline-none; }
-        /* 防止 iOS 輸入時放大 */
-        input { font-size: 16px !important; } 
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; }
+        .input-field { font-size: 16px !important; } 
+        
+        /* 翻轉卡片特效 CSS */
+        .flip-card {
+            background-color: transparent;
+            perspective: 1000px;
+            height: 140px; /* 固定卡片高度 */
+            cursor: pointer;
+        }
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        .flip-card.flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .flip-card-front {
+            background-color: white;
+            color: black;
+        }
+        .flip-card-back {
+            background-color: #f8fafc;
+            transform: rotateY(180deg);
+            border: 2px solid #e2e8f0;
+        }
+        
+        /* 日曆樣式 */
+        .calendar-day { aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 0.8rem; cursor: pointer; position: relative;}
+        .has-data::after { content: ''; position: absolute; bottom: 2px; width: 4px; height: 4px; background-color: #10b981; border-radius: 50%; }
+        .selected-day { background-color: #2563eb !important; color: white !important; }
+        .today-mark { border: 2px solid #2563eb; }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body>
 
-<div id="app" class="max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col">
+<div id="app" class="max-w-md mx-auto min-h-screen bg-gray-100 flex flex-col pb-20">
     
-    <header class="bg-green-600 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
-        <h1 class="text-xl font-bold">Uber 帳務計算機</h1>
-        <button @click="resetData" class="text-xs bg-green-700 px-3 py-1 rounded border border-green-500">重置今日</button>
+    <header class="bg-gray-900 text-white p-4 sticky top-0 z-20 shadow-md flex justify-between items-center">
+        <h1 class="text-lg font-bold"><i class="fas fa-motorcycle mr-2"></i>Uber 財務管家</h1>
+        <div class="text-xs bg-gray-700 px-2 py-1 rounded">{{ currentTab === 'record' ? todayDate : '統計報表' }}</div>
     </header>
 
-    <main class="flex-1 p-5 space-y-6">
-
+    <main v-if="currentTab === 'record'" class="flex-1 p-5 space-y-6">
         <div class="grid grid-cols-2 gap-4">
-            <div class="col-span-2 bg-blue-50 p-4 rounded-xl border border-blue-200 text-center">
-                <div class="text-gray-500 text-sm mb-1">今日淨利 (已扣成本)</div>
-                <div class="text-3xl font-bold text-blue-700 font-mono">${{ formatNumber(netProfit) }}</div>
+            <div class="col-span-2 bg-white p-5 rounded-2xl shadow-sm text-center border-l-4 border-blue-500">
+                <div class="text-gray-500 text-sm mb-1">今日淨利 (進口袋)</div>
+                <div class="text-4xl font-bold text-blue-600 font-mono">${{ formatNumber(todayStats.netProfit) }}</div>
             </div>
-
-            <div class="col-span-2 p-4 rounded-xl border text-center transition-colors"
-                 :class="walletBalance < 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'">
-                
-                <div class="text-sm font-bold mb-1" :class="walletBalance < 0 ? 'text-red-600' : 'text-green-600'">
-                    {{ walletBalance < 0 ? '⚠️ 需要匯款給 Uber' : '✅ Uber 下週匯給你' }}
+            
+            <div class="col-span-2 p-4 rounded-2xl border text-center transition-colors shadow-sm bg-white"
+                 :class="todayStats.walletBalance < 0 ? 'border-red-400 bg-red-50' : 'border-green-400 bg-green-50'">
+                <div class="text-sm font-bold mb-1" :class="todayStats.walletBalance < 0 ? 'text-red-600' : 'text-green-600'">
+                    {{ todayStats.walletBalance < 0 ? '⚠️ 需匯回 Uber' : '✅ Uber 下週匯款' }}
                 </div>
-                
-                <div class="text-3xl font-bold font-mono" :class="walletBalance < 0 ? 'text-red-700' : 'text-green-700'">
-                    ${{ formatNumber(Math.abs(walletBalance)) }}
-                </div>
-                
-                <div class="text-xs text-gray-500 mt-2">
-                    {{ walletBalance < 0 ? '現金收太多，這筆錢不屬於你' : '現金收得少，這是你的薪水' }}
+                <div class="text-2xl font-bold font-mono" :class="todayStats.walletBalance < 0 ? 'text-red-700' : 'text-green-700'">
+                    ${{ formatNumber(Math.abs(todayStats.walletBalance)) }}
                 </div>
             </div>
         </div>
 
-        <hr class="border-gray-200">
-
-        <div class="space-y-4">
+        <div class="bg-white p-5 rounded-2xl shadow-sm space-y-4">
             <div>
-                <label class="block text-gray-700 text-sm font-bold mb-2">App 顯示總金額 (行程+獎勵)</label>
-                <input type="number" v-model.number="appEarnings" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right focus:ring-2 focus:ring-green-500 outline-none" placeholder="0">
-                <p class="text-xs text-gray-400 mt-1">請看 Driver App 的「今日行程費用」</p>
+                <label class="block text-gray-700 text-xs font-bold mb-1">App 行程費用 (含獎勵)</label>
+                <input type="number" v-model.number="currentRecord.appEarnings" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-xl font-mono text-right focus:ring-2 focus:ring-blue-500 outline-none" inputmode="decimal">
             </div>
-
             <div>
-                <label class="block text-gray-700 text-sm font-bold mb-2">今日收取現金總額</label>
-                <input type="number" v-model.number="cashCollected" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right text-orange-600 focus:ring-2 focus:ring-orange-500 outline-none" placeholder="0">
-                <p class="text-xs text-gray-400 mt-1">你手上拿到的所有現金單金額</p>
+                <label class="block text-gray-700 text-xs font-bold mb-1">收取現金總額</label>
+                <input type="number" v-model.number="currentRecord.cashCollected" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-xl font-mono text-right text-orange-600 focus:ring-2 focus:ring-orange-500 outline-none" inputmode="decimal">
             </div>
-
             <div>
-                <label class="block text-gray-700 text-sm font-bold mb-2">今日成本支出 (油錢/餐費)</label>
-                <input type="number" v-model.number="expenses" inputmode="decimal" class="w-full p-4 border border-gray-300 rounded-lg text-2xl font-mono text-right text-gray-600 focus:ring-2 focus:ring-gray-500 outline-none" placeholder="0">
+                <label class="block text-gray-700 text-xs font-bold mb-1">今日支出 (油錢/餐費)</label>
+                <input type="number" v-model.number="currentRecord.expenses" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-xl font-mono text-right text-gray-600 focus:ring-2 focus:ring-gray-500 outline-none" inputmode="decimal">
             </div>
+            
+            <button @click="saveToday" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold active:scale-95 transition transform shadow-lg shadow-blue-200">
+                <i class="fas fa-save mr-2"></i>儲存/更新今日帳務
+            </button>
         </div>
-
-        <div class="bg-gray-50 p-4 rounded-lg text-sm space-y-2 text-gray-600 mt-6">
-            <h3 class="font-bold text-gray-800 mb-2">帳務分析</h3>
-            <div class="flex justify-between">
-                <span>帳面收入:</span>
-                <span>+ ${{ formatNumber(appEarnings) }}</span>
-            </div>
-            <div class="flex justify-between text-red-500">
-                <span>扣除成本:</span>
-                <span>- ${{ formatNumber(expenses) }}</span>
-            </div>
-            <div class="border-t border-gray-300 my-1"></div>
-            <div class="flex justify-between font-bold text-gray-800">
-                <span>實際獲利:</span>
-                <span>${{ formatNumber(netProfit) }}</span>
-            </div>
-            <div class="mt-4 text-xs bg-yellow-100 p-2 rounded text-yellow-800">
-                💡 <strong>小提醒：</strong>
-                如果「Uber 錢包狀態」是紅色，記得要把那筆錢存進刷卡扣款的帳戶，不然會變成欠款喔！
-            </div>
-        </div>
-
     </main>
+
+    <main v-if="currentTab === 'stats'" class="flex-1 p-4 space-y-4">
+        
+        <div class="bg-gray-900 text-white p-5 rounded-2xl shadow-lg flex justify-between items-center">
+            <div>
+                <div class="text-gray-400 text-xs mb-1">選取期間總淨利</div>
+                <div class="text-3xl font-bold font-mono">${{ formatNumber(periodTotalProfit) }}</div>
+            </div>
+            <div class="text-right">
+                <div class="text-xs text-gray-400">總單數/天數</div>
+                <div class="font-bold">{{ filteredRecords.length }} 天</div>
+            </div>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl shadow-sm">
+            <div class="flex justify-between items-center mb-4">
+                <button @click="changeMonth(-1)" class="p-2 text-gray-400 hover:text-gray-800"><i class="fas fa-chevron-left"></i></button>
+                <span class="font-bold text-gray-700">{{ calendarYear }}年 {{ calendarMonth + 1 }}月</span>
+                <button @click="changeMonth(1)" class="p-2 text-gray-400 hover:text-gray-800"><i class="fas fa-chevron-right"></i></button>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-center mb-2">
+                <div v-for="d in ['日','一','二','三','四','五','六']" class="text-xs text-gray-400">{{d}}</div>
+            </div>
+            <div class="grid grid-cols-7 gap-1">
+                <div v-for="day in calendarDays" 
+                     :key="day.dateStr"
+                     class="calendar-day hover:bg-gray-100 transition"
+                     :class="{
+                        'text-gray-300': !day.isCurrentMonth,
+                        'has-data': hasData(day.dateStr),
+                        'selected-day': selectedDate === day.dateStr,
+                        'today-mark': day.dateStr === todayDate
+                     }"
+                     @click="selectDate(day.dateStr)">
+                    {{ day.dayNum }}
+                </div>
+            </div>
+        </div>
+
+        <div class="flex overflow-x-auto space-x-2 pb-2 no-scrollbar">
+            <button v-for="p in periods" 
+                    @click="setPeriod(p.value)"
+                    class="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition"
+                    :class="currentPeriod === p.value && !selectedDate ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200'">
+                {{ p.label }}
+            </button>
+            <button v-if="selectedDate" @click="clearDateSelection" class="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap bg-red-100 text-red-600 border border-red-200">
+                <i class="fas fa-times mr-1"></i>清除日期篩選
+            </button>
+        </div>
+
+        <div class="space-y-3 pb-20">
+            <div v-if="filteredRecords.length === 0" class="text-center py-10 text-gray-400">
+                <i class="fas fa-inbox text-4xl mb-3 opacity-30"></i>
+                <p>此區間無資料</p>
+            </div>
+
+            <div v-for="record in sortedRecords" :key="record.date" 
+                 class="flip-card" 
+                 :class="{ 'flipped': flippedCards[record.date] }"
+                 @click="toggleFlip(record.date)">
+                
+                <div class="flip-card-inner">
+                    <div class="flip-card-front">
+                        <div class="absolute top-3 left-4 text-xs font-bold text-gray-400">{{ record.date }}</div>
+                        <div class="absolute top-3 right-4 text-xs text-gray-400"><i class="fas fa-hand-pointer animate-pulse"></i> 點擊查看詳情</div>
+                        
+                        <div class="text-center">
+                            <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">今日淨利</div>
+                            <div class="text-3xl font-bold text-gray-800 font-mono">${{ formatNumber(record.appEarnings - record.expenses) }}</div>
+                        </div>
+                    </div>
+
+                    <div class="flip-card-back p-4 flex flex-col justify-between items-center">
+                         <div class="w-full flex justify-between items-center border-b pb-2 mb-2">
+                            <span class="font-bold text-gray-700">{{ record.date }}</span>
+                            <span class="text-xs bg-gray-200 px-2 py-1 rounded">詳細明細</span>
+                        </div>
+                        <div class="w-full space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-500">App 收入</span>
+                                <span class="font-bold text-gray-800">${{ formatNumber(record.appEarnings) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500">現金收取</span>
+                                <span class="font-bold text-orange-600">${{ formatNumber(record.cashCollected) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500">支出成本</span>
+                                <span class="font-bold text-red-500">-${{ formatNumber(record.expenses) }}</span>
+                            </div>
+                            <div class="flex justify-between pt-2 border-t mt-1">
+                                <span class="text-gray-500">Uber 錢包餘額</span>
+                                <span class="font-bold" :class="(record.appEarnings - record.cashCollected) < 0 ? 'text-red-600' : 'text-green-600'">
+                                    ${{ formatNumber(record.appEarnings - record.cashCollected) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <nav class="fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around py-3 z-30 pb-safe">
+        <button @click="currentTab = 'record'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'record' ? 'text-blue-600' : 'text-gray-400'">
+            <i class="fas fa-edit text-xl"></i>
+            <span class="text-xs">記帳</span>
+        </button>
+        <button @click="currentTab = 'stats'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'stats' ? 'text-blue-600' : 'text-gray-400'">
+            <i class="fas fa-chart-pie text-xl"></i>
+            <span class="text-xs">統計</span>
+        </button>
+    </nav>
+
 </div>
 
 <script>
-    const { createApp, ref, computed, watch, onMounted } = Vue;
+    const { createApp, ref, computed, onMounted, reactive, watch } = Vue;
 
     createApp({
         setup() {
-            // 資料變數
-            const appEarnings = ref(0);   // App 顯示賺多少
-            const cashCollected = ref(0); // 收了多少現金
-            const expenses = ref(0);      // 油錢成本
+            const currentTab = ref('record'); // record | stats
+            const todayDate = new Date().toISOString().split('T')[0];
+            
+            // 資料儲存結構
+            const history = ref([]); 
+            const currentRecord = reactive({
+                appEarnings: '',
+                cashCollected: '',
+                expenses: ''
+            });
 
-            // 1. 初始化：從 LocalStorage 讀取資料 (防止重新整理後消失)
+            // 統計相關狀態
+            const currentPeriod = ref('7'); // default 7 days
+            const selectedDate = ref(null); // 如果有選日期，則 filter 變成該日期
+            const flippedCards = reactive({}); // 記錄哪些卡片被翻轉
+
+            // 日曆相關狀態
+            const calendarYear = ref(new Date().getFullYear());
+            const calendarMonth = ref(new Date().getMonth());
+
+            const periods = [
+                { label: '一週', value: '7' },
+                { label: '兩週', value: '14' },
+                { label: '一個月', value: '30' },
+                { label: '三個月', value: '90' },
+                { label: '六個月', value: '180' },
+                { label: '一年', value: '365' },
+                { label: '全部', value: 'all' }
+            ];
+
+            // 初始化
             onMounted(() => {
-                const savedData = JSON.parse(localStorage.getItem('uberCalcData_v1'));
-                if (savedData) {
-                    // 檢查是否是同一天，如果是隔天了建議重置，這裡先單純讀取
-                    appEarnings.value = savedData.appEarnings || 0;
-                    cashCollected.value = savedData.cashCollected || 0;
-                    expenses.value = savedData.expenses || 0;
+                const savedHistory = JSON.parse(localStorage.getItem('uberCalcHistory_v2'));
+                if (savedHistory && Array.isArray(savedHistory)) {
+                    history.value = savedHistory;
+                }
+                
+                // 嘗試載入今天的資料
+                const todayData = history.value.find(h => h.date === todayDate);
+                if (todayData) {
+                    currentRecord.appEarnings = todayData.appEarnings;
+                    currentRecord.cashCollected = todayData.cashCollected;
+                    currentRecord.expenses = todayData.expenses;
                 }
             });
 
-            // 2. 自動儲存：只要資料變動就存到 LocalStorage
-            watch([appEarnings, cashCollected, expenses], () => {
-                localStorage.setItem('uberCalcData_v1', JSON.stringify({
-                    appEarnings: appEarnings.value,
-                    cashCollected: cashCollected.value,
-                    expenses: expenses.value,
-                    date: new Date().toISOString().split('T')[0]
-                }));
+            // 計算今日即時預覽
+            const todayStats = computed(() => {
+                const app = Number(currentRecord.appEarnings) || 0;
+                const cash = Number(currentRecord.cashCollected) || 0;
+                const exp = Number(currentRecord.expenses) || 0;
+                return {
+                    walletBalance: app - cash,
+                    netProfit: app - exp
+                };
             });
 
-            // 計算邏輯
-            
-            // Uber 錢包餘額 = 賺的錢 - 已經拿走的現金
-            const walletBalance = computed(() => {
-                return appEarnings.value - cashCollected.value;
-            });
+            // 儲存今日資料
+            const saveToday = () => {
+                const index = history.value.findIndex(h => h.date === todayDate);
+                const newData = {
+                    date: todayDate,
+                    appEarnings: Number(currentRecord.appEarnings) || 0,
+                    cashCollected: Number(currentRecord.cashCollected) || 0,
+                    expenses: Number(currentRecord.expenses) || 0,
+                    timestamp: Date.now()
+                };
 
-            // 淨利 = 賺的錢 - 成本 (跟現金無關，這是你真實賺的)
-            const netProfit = computed(() => {
-                return appEarnings.value - expenses.value;
-            });
-
-            // 格式化數字 (加逗號)
-            const formatNumber = (num) => {
-                return num.toLocaleString();
+                if (index !== -1) {
+                    history.value[index] = newData; // Update
+                } else {
+                    history.value.push(newData); // Insert
+                }
+                
+                // Save to LS
+                localStorage.setItem('uberCalcHistory_v2', JSON.stringify(history.value));
+                alert('今日帳務已儲存！');
             };
 
-            // 重置按鈕
-            const resetData = () => {
-                if(confirm('確定要清空今日資料嗎？')) {
-                    appEarnings.value = 0;
-                    cashCollected.value = 0;
-                    expenses.value = 0;
+            // ---- 統計與篩選邏輯 ----
+
+            const setPeriod = (val) => {
+                currentPeriod.value = val;
+                selectedDate.value = null; // 切換週期時清空日期選擇
+            };
+
+            const selectDate = (date) => {
+                if (selectedDate.value === date) {
+                    selectedDate.value = null; // Toggle off
+                } else {
+                    selectedDate.value = date;
+                }
+            };
+
+            const clearDateSelection = () => {
+                selectedDate.value = null;
+            };
+
+            const filteredRecords = computed(() => {
+                // 如果有選日期，直接回傳那一天的資料 (如果有)
+                if (selectedDate.value) {
+                    return history.value.filter(r => r.date === selectedDate.value);
+                }
+
+                // 否則根據週期篩選
+                if (currentPeriod.value === 'all') return history.value;
+
+                const days = parseInt(currentPeriod.value);
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - days);
+                const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
+                return history.value.filter(r => r.date >= cutoffStr);
+            });
+
+            const sortedRecords = computed(() => {
+                return [...filteredRecords.value].sort((a, b) => new Date(b.date) - new Date(a.date));
+            });
+
+            const periodTotalProfit = computed(() => {
+                return filteredRecords.value.reduce((sum, r) => sum + (r.appEarnings - r.expenses), 0);
+            });
+
+            // ---- UI 邏輯 ----
+            const toggleFlip = (date) => {
+                flippedCards[date] = !flippedCards[date];
+            };
+
+            const formatNumber = (num) => num.toLocaleString();
+
+            const hasData = (dateStr) => {
+                return history.value.some(h => h.date === dateStr);
+            };
+
+            // ---- 日曆產生器 ----
+            const calendarDays = computed(() => {
+                const year = calendarYear.value;
+                const month = calendarMonth.value;
+                const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 is Sunday
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+                let days = [];
+
+                // 補前一個月的日期
+                for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+                    const d = daysInPrevMonth - i;
+                    const m = month === 0 ? 12 : month;
+                    const y = month === 0 ? year - 1 : year;
+                    const mStr = String(m).padStart(2,'0');
+                    const dStr = String(d).padStart(2,'0');
+                    days.push({ dayNum: d, isCurrentMonth: false, dateStr: `${y}-${mStr}-${dStr}` });
+                }
+
+                // 當月日期
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const mStr = String(month + 1).padStart(2,'0');
+                    const dStr = String(i).padStart(2,'0');
+                    days.push({ dayNum: i, isCurrentMonth: true, dateStr: `${year}-${mStr}-${dStr}` });
+                }
+
+                // 補下個月的日期 (補滿 35 或 42 格)
+                const remaining = 42 - days.length;
+                for (let i = 1; i <= remaining; i++) {
+                     const m = month === 11 ? 1 : month + 2;
+                     const y = month === 11 ? year + 1 : year;
+                     const mStr = String(m).padStart(2,'0');
+                     const dStr = String(i).padStart(2,'0');
+                    days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${y}-${mStr}-${dStr}` });
+                }
+
+                return days;
+            });
+
+            const changeMonth = (delta) => {
+                let newMonth = calendarMonth.value + delta;
+                if (newMonth > 11) {
+                    calendarMonth.value = 0;
+                    calendarYear.value++;
+                } else if (newMonth < 0) {
+                    calendarMonth.value = 11;
+                    calendarYear.value--;
+                } else {
+                    calendarMonth.value = newMonth;
                 }
             };
 
             return {
-                appEarnings,
-                cashCollected,
-                expenses,
-                walletBalance,
-                netProfit,
-                formatNumber,
-                resetData
+                currentTab, todayDate, currentRecord, todayStats, saveToday,
+                history, periods, currentPeriod, setPeriod,
+                selectedDate, selectDate, clearDateSelection,
+                filteredRecords, sortedRecords, periodTotalProfit,
+                calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
+                flippedCards, toggleFlip, formatNumber
             };
         }
     }).mount('#app');
