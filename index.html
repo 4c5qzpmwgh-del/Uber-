@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber 財務管家 v3.2 (即時版)</title>
+    <title>Uber 財務管家 v3.3 (GPS版)</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -31,6 +31,12 @@
             100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
         .timer-active { animation: pulse-green 2s infinite; }
+        
+        /* GPS 訊號閃爍 */
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .gps-ping { animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; }
     </style>
 </head>
 <body>
@@ -56,9 +62,7 @@
                     <div class="font-mono text-xl font-bold tracking-wider text-yellow-300">{{ paydayCountdown }}</div>
                 </div>
             </div>
-            <div class="text-right text-xs text-gray-500">
-                週三 02:00
-            </div>
+            <div class="text-right text-xs text-gray-500">週三 02:00</div>
         </div>
 
         <div class="bg-white p-4 rounded-2xl shadow-sm flex items-center justify-between">
@@ -111,10 +115,23 @@
                     </span>
                 </button>
                 
-                <div class="mt-2 text-center flex justify-between items-center bg-gray-50 p-2 rounded-lg">
-                    <span class="text-xs text-gray-400">狀態: {{ timerState.isOnline ? '🟢 在線中' : '⚪️ 離線' }}</span>
-                    <span class="font-mono text-xl font-bold text-gray-700">{{ formattedElapsedTime }}</span>
+                <div class="mt-2 flex justify-between gap-2">
+                    <div class="flex-1 text-center flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+                        <span class="text-xs text-gray-400">
+                            {{ timerState.isOnline ? '🟢 在線' : '⚪️ 離線' }}
+                        </span>
+                        <span class="font-mono text-lg font-bold text-gray-700">{{ formattedElapsedTime }}</span>
+                    </div>
+
+                    <div class="flex-1 text-center flex justify-between items-center bg-blue-50 p-2 rounded-lg border border-blue-100 relative overflow-hidden">
+                        <div v-if="timerState.isOnline" class="absolute top-1 left-1 w-2 h-2 bg-blue-500 rounded-full gps-ping"></div>
+                        <span class="text-xs text-blue-400 pl-3">今日里程</span>
+                        <span class="font-mono text-lg font-bold text-blue-700">
+                            {{ currentRecord.mileage || 0 }} <span class="text-xs">km</span>
+                        </span>
+                    </div>
                 </div>
+                <div v-if="gpsError" class="text-xs text-red-500 mt-1 text-center"><i class="fas fa-exclamation-circle"></i> {{ gpsError }}</div>
             </div>
 
             <div class="grid grid-cols-2 gap-4">
@@ -169,10 +186,8 @@
                 </div>
             </div>
             <div class="flex justify-between text-xs text-gray-400 border-t border-gray-700 pt-3">
-                <span>總單數: {{ periodStats.totalOrders }} 單</span>
-                <span>總時數: {{ periodStats.totalHours }} hr</span>
-                <span>跑單天數: {{ periodStats.days }} 天</span>
-            </div>
+                <span>總單數: {{ periodStats.totalOrders }}</span>
+                <span>總里程: {{ periodStats.totalMileage }} km</span> </div>
         </div>
 
         <div class="bg-white p-4 rounded-2xl shadow-sm">
@@ -249,8 +264,8 @@
                                 <div class="font-bold text-gray-700">${{ calculateOrderAvg(record) }}/單</div>
                             </div>
                             <div class="text-center">
-                                <div class="text-[10px] text-gray-500">工時/單量</div>
-                                <div class="font-bold text-gray-700">{{ record.workHours || 0 }}hr / {{ record.orderCount || 0 }}單</div>
+                                <div class="text-[10px] text-gray-500">里程/單量</div>
+                                <div class="font-bold text-gray-700">{{ record.mileage || 0 }}km / {{ record.orderCount || 0 }}單</div>
                             </div>
                         </div>
                         <div class="w-full space-y-1 text-xs">
@@ -274,16 +289,9 @@
     </main>
 
     <nav class="fixed bottom-0 w-full bg-white border-t border-gray-200 flex justify-around py-3 z-30 pb-safe shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
-        <button @click="currentTab = 'record'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'record' ? 'text-blue-600' : 'text-gray-400'">
-            <i class="fas fa-edit text-xl"></i>
-            <span class="text-xs">記帳</span>
-        </button>
-        <button @click="currentTab = 'stats'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'stats' ? 'text-blue-600' : 'text-gray-400'">
-            <i class="fas fa-chart-pie text-xl"></i>
-            <span class="text-xs">統計</span>
-        </button>
+        <button @click="currentTab = 'record'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'record' ? 'text-blue-600' : 'text-gray-400'"><i class="fas fa-edit text-xl"></i><span class="text-xs">記帳</span></button>
+        <button @click="currentTab = 'stats'" class="flex flex-col items-center space-y-1 w-1/2" :class="currentTab === 'stats' ? 'text-blue-600' : 'text-gray-400'"><i class="fas fa-chart-pie text-xl"></i><span class="text-xs">統計</span></button>
     </nav>
-
 </div>
 
 <script>
@@ -297,26 +305,78 @@
             const history = ref([]); 
 
             const currentRecord = reactive({
-                appEarnings: '', cashCollected: '', expenses: '', orderCount: '', workHours: '' 
+                appEarnings: '', cashCollected: '', expenses: '', orderCount: '', workHours: '', mileage: 0 // New Mileage
             });
+
+            // ---- GPS Logic ----
+            const gpsError = ref('');
+            let watchId = null;
+            let lastPos = null;
+
+            // 半正矢公式計算距離 (Haversine Formula)
+            const calculateDistance = (lat1, lon1, lat2, lon2) => {
+                const R = 6371; // Earth radius in km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon2 - lon1) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                          Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                return R * c;
+            };
+
+            const startGPS = () => {
+                if (!navigator.geolocation) {
+                    gpsError.value = "瀏覽器不支援定位";
+                    return;
+                }
+                
+                // 恢復上次紀錄的里程 (如果今天有的話)
+                // 已經在 loadDataForTargetDate 處理了
+
+                watchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        
+                        // 第一個點不計算距離，只記錄位置
+                        if (lastPos) {
+                            const dist = calculateDistance(lastPos.lat, lastPos.lon, latitude, longitude);
+                            // 過濾小於 10 公尺的漂移
+                            if (dist > 0.01) { 
+                                const currentKm = parseFloat(currentRecord.mileage) || 0;
+                                currentRecord.mileage = (currentKm + dist).toFixed(2); // 保留兩位小數
+                                lastPos = { lat: latitude, lon: longitude };
+                            }
+                        } else {
+                            lastPos = { lat: latitude, lon: longitude };
+                        }
+                        gpsError.value = '';
+                    },
+                    (err) => {
+                        console.error(err);
+                        gpsError.value = "定位失敗: 請允許 GPS 權限";
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
+                    }
+                );
+            };
+
+            const stopGPS = () => {
+                if (watchId) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                    lastPos = null;
+                }
+            };
+            // -------------------
 
             const paydayCountdown = ref("計算中...");
             let paydayInterval = null;
-
             const updatePayday = () => {
-                const now = new Date();
-                let target = new Date();
-                const dayOfWeek = now.getDay();
-                const diffToWed = 3 - dayOfWeek; 
-                target.setDate(now.getDate() + diffToWed);
-                target.setHours(2, 0, 0, 0); 
-                if (target <= now) target.setDate(target.getDate() + 7);
-                const diff = target - now;
-                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
-                const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-                const s = Math.floor((diff % (1000 * 60)) / 1000);
-                paydayCountdown.value = `${d}天 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                const now = new Date(); let target = new Date(); const dW = now.getDay(); const diffToWed = 3 - dW; target.setDate(now.getDate() + diffToWed); target.setHours(2, 0, 0, 0); if (target <= now) target.setDate(target.getDate() + 7); const diff = target - now; const d = Math.floor(diff / (1000 * 60 * 60 * 24)); const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)); const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)); const s = Math.floor((diff % (1000 * 60)) / 1000); paydayCountdown.value = `${d}天 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             };
 
             const timerState = reactive({ isOnline: false, startTime: null, accumulatedMs: 0 });
@@ -326,26 +386,22 @@
             const loadTimerState = () => {
                 const saved = JSON.parse(localStorage.getItem('uberTimerState_v1'));
                 if (saved && saved.date === todayDate) {
-                    timerState.isOnline = saved.isOnline;
-                    timerState.startTime = saved.startTime;
-                    timerState.accumulatedMs = saved.accumulatedMs;
-                    if (timerState.isOnline) startTicker();
+                    timerState.isOnline = saved.isOnline; timerState.startTime = saved.startTime; timerState.accumulatedMs = saved.accumulatedMs;
+                    if (timerState.isOnline) { startTicker(); startGPS(); } // 恢復時也開啟 GPS
                     else updateDisplayTime();
-                } else {
-                    resetTimer();
-                }
+                } else resetTimer();
             };
-
             const saveTimerState = () => { localStorage.setItem('uberTimerState_v1', JSON.stringify({ ...timerState, date: todayDate })); };
             const resetTimer = () => { timerState.isOnline = false; timerState.startTime = null; timerState.accumulatedMs = 0; formattedElapsedTime.value = "00:00:00"; saveTimerState(); };
 
             const toggleTimer = () => {
                 if (!timerState.isOnline) {
-                    timerState.isOnline = true; timerState.startTime = Date.now(); startTicker();
+                    timerState.isOnline = true; timerState.startTime = Date.now(); 
+                    startTicker(); startGPS(); // Start GPS
                 } else {
-                    timerState.isOnline = false;
-                    timerState.accumulatedMs += (Date.now() - timerState.startTime);
-                    timerState.startTime = null; stopTicker(); updateWorkHoursInput(); 
+                    timerState.isOnline = false; timerState.accumulatedMs += (Date.now() - timerState.startTime); timerState.startTime = null; 
+                    stopTicker(); stopGPS(); // Stop GPS
+                    updateWorkHoursInput(); 
                 }
                 saveTimerState();
             };
@@ -353,25 +409,17 @@
             const startTicker = () => { stopTicker(); updateDisplayTime(); timerInterval = setInterval(() => { updateDisplayTime(); if (new Date().getSeconds() === 0) updateWorkHoursInput(); }, 1000); };
             const stopTicker = () => { if (timerInterval) clearInterval(timerInterval); updateDisplayTime(); };
             const updateDisplayTime = () => {
-                let currentSessionMs = 0;
-                if (timerState.isOnline && timerState.startTime) currentSessionMs = Date.now() - timerState.startTime;
-                const totalMs = timerState.accumulatedMs + currentSessionMs;
-                const s = Math.floor((totalMs / 1000) % 60);
-                const m = Math.floor((totalMs / (1000 * 60)) % 60);
-                const h = Math.floor((totalMs / (1000 * 60 * 60)));
+                let c = 0; if (timerState.isOnline && timerState.startTime) c = Date.now() - timerState.startTime;
+                const t = timerState.accumulatedMs + c;
+                const s = Math.floor((t / 1000) % 60); const m = Math.floor((t / (1000 * 60)) % 60); const h = Math.floor((t / (1000 * 60 * 60)));
                 formattedElapsedTime.value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
             };
             const updateWorkHoursInput = () => {
-                let currentSessionMs = 0;
-                if (timerState.isOnline && timerState.startTime) currentSessionMs = Date.now() - timerState.startTime;
-                currentRecord.workHours = ((timerState.accumulatedMs + currentSessionMs) / (1000 * 60 * 60)).toFixed(1);
+                let c = 0; if (timerState.isOnline && timerState.startTime) c = Date.now() - timerState.startTime;
+                currentRecord.workHours = ((timerState.accumulatedMs + c) / (1000 * 60 * 60)).toFixed(1);
             };
 
-            const currentPeriod = ref('7'); 
-            const selectedDate = ref(null); 
-            const flippedCards = reactive({}); 
-            const calendarYear = ref(new Date().getFullYear());
-            const calendarMonth = ref(new Date().getMonth());
+            const currentPeriod = ref('7'); const selectedDate = ref(null); const flippedCards = reactive({}); const calendarYear = ref(new Date().getFullYear()); const calendarMonth = ref(new Date().getMonth());
             const periods = [{ label: '一週', value: '7' }, { label: '兩週', value: '14' }, { label: '一個月', value: '30' }, { label: '三個月', value: '90' }, { label: '六個月', value: '180' }, { label: '一年', value: '365' }, { label: '全部', value: 'all' }];
 
             onMounted(() => {
@@ -379,7 +427,7 @@
                 if (savedHistory && Array.isArray(savedHistory)) history.value = savedHistory;
                 loadDataForTargetDate(); loadTimerState(); updatePayday(); paydayInterval = setInterval(updatePayday, 1000);
             });
-            onUnmounted(() => { if (paydayInterval) clearInterval(paydayInterval); if (timerInterval) clearInterval(timerInterval); });
+            onUnmounted(() => { if (paydayInterval) clearInterval(paydayInterval); if (timerInterval) clearInterval(timerInterval); stopGPS(); });
             watch(targetDate, () => loadDataForTargetDate());
 
             const loadDataForTargetDate = () => {
@@ -387,79 +435,35 @@
                 if (data) {
                     currentRecord.appEarnings = data.appEarnings; currentRecord.cashCollected = data.cashCollected;
                     currentRecord.expenses = data.expenses; currentRecord.orderCount = data.orderCount || ''; currentRecord.workHours = data.workHours || '';
+                    currentRecord.mileage = data.mileage || 0; // Load Mileage
                 } else {
-                    currentRecord.appEarnings = ''; currentRecord.cashCollected = ''; currentRecord.expenses = ''; currentRecord.orderCount = ''; currentRecord.workHours = '';
+                    currentRecord.appEarnings = ''; currentRecord.cashCollected = ''; currentRecord.expenses = ''; currentRecord.orderCount = ''; currentRecord.workHours = ''; currentRecord.mileage = 0;
                 }
             };
 
             const currentStats = computed(() => {
-                const app = Number(currentRecord.appEarnings) || 0;
-                const cash = Number(currentRecord.cashCollected) || 0;
-                const exp = Number(currentRecord.expenses) || 0;
-                const hrs = Number(currentRecord.workHours) || 0;
-                const netProfit = app - exp;
-                const hourlyWage = hrs > 0 ? Math.round(netProfit / hrs) : 0;
+                const app = Number(currentRecord.appEarnings) || 0; const cash = Number(currentRecord.cashCollected) || 0; const exp = Number(currentRecord.expenses) || 0; const hrs = Number(currentRecord.workHours) || 0;
+                const netProfit = app - exp; const hourlyWage = hrs > 0 ? Math.round(netProfit / hrs) : 0;
                 return { walletBalance: app - cash, netProfit: netProfit, hourlyWage: hourlyWage };
             });
 
-            // ---- 即時運算核心 (Fix: 混合歷史數據 + 當前輸入框數據) ----
             const cumulativeWalletBalance = computed(() => {
-                // 1. 取得所有比 targetDate 早的歷史紀錄
-                // (注意：我們不直接取 history 中等於 targetDate 的資料，因為我們要用 input 裡最新的)
-                const sortedHistory = history.value
-                    .filter(h => h.date <= targetDate.value)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date));
-                
-                // 如果是新的一天且完全沒歷史，直接算今天的
-                if (sortedHistory.length === 0 && targetDate.value === todayDate) {
-                    const todayApp = Number(currentRecord.appEarnings) || 0;
-                    const todayCash = Number(currentRecord.cashCollected) || 0;
-                    return todayApp - todayCash;
-                }
-                
-                // 2. 確定計算起點
+                const sortedHistory = history.value.filter(h => h.date <= targetDate.value).sort((a, b) => new Date(a.date) - new Date(b.date));
+                if (sortedHistory.length === 0 && targetDate.value === todayDate) { return (Number(currentRecord.appEarnings)||0) - (Number(currentRecord.cashCollected)||0); }
                 let startDateStr = sortedHistory.length > 0 ? sortedHistory[0].date : targetDate.value;
-                
-                // 為了保險，如果 targetDate 比歷史紀錄最早還早，就用 targetDate 當起點
                 if (startDateStr > targetDate.value) startDateStr = targetDate.value;
-
-                let currDate = new Date(startDateStr + 'T00:00:00'); 
-                const end = new Date(targetDate.value + 'T00:00:00');
-                
-                // 製作快速查找表
-                const historyMap = {};
-                sortedHistory.forEach(h => historyMap[h.date] = h);
-
+                let currDate = new Date(startDateStr + 'T00:00:00'); const end = new Date(targetDate.value + 'T00:00:00');
+                const historyMap = {}; sortedHistory.forEach(h => historyMap[h.date] = h);
                 let balance = 0;
-
-                // 3. 逐日模擬 (包含 Live Data 注入)
                 while (currDate <= end) {
                     const dateStr = currDate.toISOString().split('T')[0];
-                    const isMonday = currDate.getDay() === 1;
-
-                    // A. 週一檢查點 (先結算之前的)
-                    if (isMonday && balance > 0) {
-                        balance = 0; 
-                    }
-
-                    // B. 加入當天的交易
-                    let dailyAppEarnings = 0;
-                    let dailyCash = 0;
-
-                    if (dateStr === targetDate.value) {
-                        // 【關鍵修改】：如果是現在選到的日期，強制使用 Input 的值 (即時反應)
-                        dailyAppEarnings = Number(currentRecord.appEarnings) || 0;
-                        dailyCash = Number(currentRecord.cashCollected) || 0;
-                    } else if (historyMap[dateStr]) {
-                        // 如果是歷史紀錄
-                        dailyAppEarnings = historyMap[dateStr].appEarnings || 0;
-                        dailyCash = historyMap[dateStr].cashCollected || 0;
-                    }
-
-                    balance += (dailyAppEarnings - dailyCash);
+                    if (currDate.getDay() === 1 && balance > 0) balance = 0; 
+                    let dailyApp = 0, dailyCash = 0;
+                    if (dateStr === targetDate.value) { dailyApp = Number(currentRecord.appEarnings) || 0; dailyCash = Number(currentRecord.cashCollected) || 0; }
+                    else if (historyMap[dateStr]) { dailyApp = historyMap[dateStr].appEarnings || 0; dailyCash = historyMap[dateStr].cashCollected || 0; }
+                    balance += (dailyApp - dailyCash);
                     currDate.setDate(currDate.getDate() + 1);
                 }
-
                 return balance;
             });
 
@@ -473,6 +477,7 @@
                     expenses: Number(currentRecord.expenses) || 0,
                     orderCount: Number(currentRecord.orderCount) || 0,
                     workHours: Number(currentRecord.workHours) || 0,
+                    mileage: currentRecord.mileage || 0, // Save Mileage
                     timestamp: Date.now()
                 };
                 if (index !== -1) history.value[index] = newData; else history.value.push(newData);
@@ -486,9 +491,7 @@
             const filteredRecords = computed(() => {
                 if (selectedDate.value) return history.value.filter(r => r.date === selectedDate.value);
                 if (currentPeriod.value === 'all') return history.value;
-                const days = parseInt(currentPeriod.value);
-                const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-                const cutoffStr = cutoff.toISOString().split('T')[0];
+                const days = parseInt(currentPeriod.value); const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days); const cutoffStr = cutoff.toISOString().split('T')[0];
                 return history.value.filter(r => r.date >= cutoffStr);
             });
             const sortedRecords = computed(() => [...filteredRecords.value].sort((a, b) => new Date(b.date) - new Date(a.date)));
@@ -497,7 +500,8 @@
                 const tp = r.reduce((s, i) => s + (i.appEarnings - i.expenses), 0);
                 const th = r.reduce((s, i) => s + (i.workHours || 0), 0);
                 const to = r.reduce((s, i) => s + (i.orderCount || 0), 0);
-                return { totalProfit: tp, totalHours: th.toFixed(1), totalOrders: to, avgHourly: th > 0 ? Math.round(tp / th) : 0, days: r.length };
+                const tm = r.reduce((s, i) => s + (Number(i.mileage) || 0), 0); // Total Mileage
+                return { totalProfit: tp, totalHours: th.toFixed(1), totalOrders: to, totalMileage: tm.toFixed(1), avgHourly: th > 0 ? Math.round(tp / th) : 0, days: r.length };
             });
             const calculateHourly = (r) => { const n = r.appEarnings - r.expenses; const h = r.workHours || 0; return h > 0 ? Math.round(n / h) : 0; };
             const calculateOrderAvg = (r) => { const a = r.appEarnings || 0; const c = r.orderCount || 0; return c > 0 ? Math.round(a / c) : 0; };
@@ -507,20 +511,20 @@
             const calendarDays = computed(() => {
                 const y = calendarYear.value; const m = calendarMonth.value;
                 const fd = new Date(y, m, 1).getDay(); const dim = new Date(y, m + 1, 0).getDate(); const pd = new Date(y, m, 0).getDate();
-                let days = [];
-                for (let i = fd - 1; i >= 0; i--) days.push({ dayNum: pd - i, isCurrentMonth: false, dateStr: `${m===0?y-1:y}-${String(m===0?12:m).padStart(2,'0')}-${String(pd-i).padStart(2,'0')}` });
+                let days = []; for (let i = fd - 1; i >= 0; i--) days.push({ dayNum: pd - i, isCurrentMonth: false, dateStr: `${m===0?y-1:y}-${String(m===0?12:m).padStart(2,'0')}-${String(pd-i).padStart(2,'0')}` });
                 for (let i = 1; i <= dim; i++) days.push({ dayNum: i, isCurrentMonth: true, dateStr: `${y}-${String(m+1).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
-                const rem = 42 - days.length;
-                for (let i = 1; i <= rem; i++) days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${m===11?y+1:y}-${String(m===11?1:m+2).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
+                const rem = 42 - days.length; for (let i = 1; i <= rem; i++) days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${m===11?y+1:y}-${String(m===11?1:m+2).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
                 return days;
             });
             const changeMonth = (d) => { let nm = calendarMonth.value + d; if (nm > 11) { calendarMonth.value = 0; calendarYear.value++; } else if (nm < 0) { calendarMonth.value = 11; calendarYear.value--; } else { calendarMonth.value = nm; } };
 
             return {
-                currentTab, todayDate, targetDate, currentRecord, currentStats, cumulativeWalletBalance, // 新增的計算屬性
+                currentTab, todayDate, targetDate, currentRecord, currentStats, cumulativeWalletBalance,
                 saveRecord, history, periods, currentPeriod, setPeriod, selectedDate, selectDate, clearDateSelection,
                 filteredRecords, sortedRecords, periodStats, calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
-                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg, timerState, toggleTimer, formattedElapsedTime, paydayCountdown
+                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg, timerState, toggleTimer, formattedElapsedTime, paydayCountdown,
+                // New
+                gpsError
             };
         }
     }).mount('#app');
