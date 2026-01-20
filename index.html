@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber 防黑心平臺</title>
+    <title>Uber 財務管家 v3.0</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -38,7 +38,7 @@
 <div id="app" class="max-w-md mx-auto min-h-screen bg-gray-100 flex flex-col pb-24">
     
     <header class="bg-gray-900 text-white p-4 sticky top-0 z-20 shadow-md flex justify-between items-center">
-        <h1 class="text-lg font-bold"><i class="fas fa-motorcycle mr-2"></i>Uber 防黑心平台</h1>
+        <h1 class="text-lg font-bold"><i class="fas fa-motorcycle mr-2"></i>Uber 財務管家</h1>
         <div class="text-xs bg-gray-700 px-2 py-1 rounded">
             {{ currentTab === 'record' ? '記帳模式' : '統計報表' }}
         </div>
@@ -46,6 +46,21 @@
 
     <main v-if="currentTab === 'record'" class="flex-1 p-5 space-y-5">
         
+        <div class="bg-gray-800 text-white rounded-xl p-4 shadow-lg flex items-center justify-between border-l-4 border-yellow-400">
+            <div class="flex items-center">
+                <div class="bg-yellow-400 text-black w-10 h-10 rounded-full flex items-center justify-center mr-3 font-bold">
+                    <i class="fas fa-dollar-sign"></i>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-400">Uber 發薪還有...</div>
+                    <div class="font-mono text-xl font-bold tracking-wider text-yellow-300">{{ paydayCountdown }}</div>
+                </div>
+            </div>
+            <div class="text-right text-xs text-gray-500">
+                週三 02:00
+            </div>
+        </div>
+
         <div class="bg-white p-4 rounded-2xl shadow-sm flex items-center justify-between">
             <label class="font-bold text-gray-700"><i class="fas fa-calendar-alt mr-2 text-blue-600"></i>記帳日期</label>
             <input type="date" v-model="targetDate" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2">
@@ -93,7 +108,7 @@
                 </button>
                 
                 <div class="mt-2 text-center flex justify-between items-center bg-gray-50 p-2 rounded-lg">
-                    <span class="text-xs text-gray-400">當前狀態: {{ timerState.isOnline ? '🟢 在線中' : '⚪️ 離線' }}</span>
+                    <span class="text-xs text-gray-400">狀態: {{ timerState.isOnline ? '🟢 在線中' : '⚪️ 離線' }}</span>
                     <span class="font-mono text-xl font-bold text-gray-700">{{ formattedElapsedTime }}</span>
                 </div>
             </div>
@@ -281,16 +296,40 @@
                 appEarnings: '', cashCollected: '', expenses: '', orderCount: '', workHours: '' 
             });
 
-            // ---- 計時器邏輯 ----
-            const timerState = reactive({
-                isOnline: false,
-                startTime: null,      // 按下開始的 timestamp
-                accumulatedMs: 0,     // 之前已經跑過的累積毫秒數 (分段跑用)
-            });
+            // ---- 發薪倒數邏輯 (新功能) ----
+            const paydayCountdown = ref("計算中...");
+            let paydayInterval = null;
+
+            const updatePayday = () => {
+                const now = new Date();
+                let target = new Date();
+                
+                // 1. 先計算本週三
+                // getDay(): 0(日), 1(一), 2(二), 3(三)...
+                const dayOfWeek = now.getDay();
+                const diffToWed = 3 - dayOfWeek; 
+                target.setDate(now.getDate() + diffToWed);
+                target.setHours(2, 0, 0, 0); // 設定為凌晨 2 點
+
+                // 2. 如果「本週三 02:00」已經過去了，目標就是「下週三」
+                if (target <= now) {
+                    target.setDate(target.getDate() + 7);
+                }
+
+                const diff = target - now;
+                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((diff % (1000 * 60)) / 1000);
+
+                paydayCountdown.value = `${d}天 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            };
+
+            // ---- 跑單計時器邏輯 ----
+            const timerState = reactive({ isOnline: false, startTime: null, accumulatedMs: 0 });
             const formattedElapsedTime = ref("00:00:00");
             let timerInterval = null;
 
-            // 初始化計時器狀態
             const loadTimerState = () => {
                 const saved = JSON.parse(localStorage.getItem('uberTimerState_v1'));
                 if (saved && saved.date === todayDate) {
@@ -300,40 +339,30 @@
                     if (timerState.isOnline) startTicker();
                     else updateDisplayTime();
                 } else {
-                    // 如果是新的一天，重置計時器
                     resetTimer();
                 }
             };
 
             const saveTimerState = () => {
-                localStorage.setItem('uberTimerState_v1', JSON.stringify({
-                    ...timerState,
-                    date: todayDate
-                }));
+                localStorage.setItem('uberTimerState_v1', JSON.stringify({ ...timerState, date: todayDate }));
             };
 
             const resetTimer = () => {
-                timerState.isOnline = false;
-                timerState.startTime = null;
-                timerState.accumulatedMs = 0;
+                timerState.isOnline = false; timerState.startTime = null; timerState.accumulatedMs = 0;
                 formattedElapsedTime.value = "00:00:00";
                 saveTimerState();
             };
 
             const toggleTimer = () => {
                 if (!timerState.isOnline) {
-                    // 開始計時
-                    timerState.isOnline = true;
-                    timerState.startTime = Date.now();
+                    timerState.isOnline = true; timerState.startTime = Date.now();
                     startTicker();
                 } else {
-                    // 暫停計時 (下線)
                     timerState.isOnline = false;
                     const sessionMs = Date.now() - timerState.startTime;
                     timerState.accumulatedMs += sessionMs;
                     timerState.startTime = null;
                     stopTicker();
-                    // 停止時自動將小時數填入 input
                     updateWorkHoursInput(); 
                 }
                 saveTimerState();
@@ -341,10 +370,9 @@
 
             const startTicker = () => {
                 stopTicker();
-                updateDisplayTime(); // 立即更新一次
+                updateDisplayTime(); 
                 timerInterval = setInterval(() => {
                     updateDisplayTime();
-                    // 在計時過程中，每分鐘也自動更新一次 input 欄位，讓預估時薪可以跳動
                     if (new Date().getSeconds() === 0) updateWorkHoursInput();
                 }, 1000);
             };
@@ -360,29 +388,22 @@
                     currentSessionMs = Date.now() - timerState.startTime;
                 }
                 const totalMs = timerState.accumulatedMs + currentSessionMs;
-                
-                // 轉換為 HH:MM:SS
                 const seconds = Math.floor((totalMs / 1000) % 60);
                 const minutes = Math.floor((totalMs / (1000 * 60)) % 60);
                 const hours = Math.floor((totalMs / (1000 * 60 * 60)));
-
-                formattedElapsedTime.value = 
-                    `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                formattedElapsedTime.value = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
             };
 
-            // 將時間轉換為小數點小時 (e.g., 3.5 hr) 填入輸入框
             const updateWorkHoursInput = () => {
                 let currentSessionMs = 0;
                 if (timerState.isOnline && timerState.startTime) {
                     currentSessionMs = Date.now() - timerState.startTime;
                 }
                 const totalMs = timerState.accumulatedMs + currentSessionMs;
-                // 轉換為小時，保留一位小數
                 currentRecord.workHours = (totalMs / (1000 * 60 * 60)).toFixed(1);
             };
             // --------------------
 
-            // 統計與其他邏輯
             const currentPeriod = ref('7'); 
             const selectedDate = ref(null); 
             const flippedCards = reactive({}); 
@@ -398,9 +419,17 @@
             onMounted(() => {
                 const savedHistory = JSON.parse(localStorage.getItem('uberCalcHistory_v2'));
                 if (savedHistory && Array.isArray(savedHistory)) history.value = savedHistory;
-                
                 loadDataForTargetDate();
-                loadTimerState(); // 載入計時器
+                loadTimerState();
+                
+                // 啟動倒數計時
+                updatePayday();
+                paydayInterval = setInterval(updatePayday, 1000);
+            });
+
+            onUnmounted(() => {
+                if (paydayInterval) clearInterval(paydayInterval);
+                if (timerInterval) clearInterval(timerInterval);
             });
 
             watch(targetDate, () => loadDataForTargetDate());
@@ -424,10 +453,8 @@
                 const cash = Number(currentRecord.cashCollected) || 0;
                 const exp = Number(currentRecord.expenses) || 0;
                 const hrs = Number(currentRecord.workHours) || 0;
-                
                 const netProfit = app - exp;
                 const hourlyWage = hrs > 0 ? Math.round(netProfit / hrs) : 0;
-
                 return { walletBalance: app - cash, netProfit: netProfit, hourlyWage: hourlyWage };
             });
 
@@ -491,7 +518,6 @@
             const formatNumber = (num) => num.toLocaleString();
             const hasData = (dateStr) => history.value.some(h => h.date === dateStr);
             
-            // 日曆與組件
             const calendarDays = computed(() => {
                 const year = calendarYear.value; const month = calendarMonth.value;
                 const firstDayOfMonth = new Date(year, month, 1).getDay(); 
@@ -526,8 +552,8 @@
                 filteredRecords, sortedRecords, periodStats,
                 calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
                 flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg,
-                // New
-                timerState, toggleTimer, formattedElapsedTime
+                timerState, toggleTimer, formattedElapsedTime,
+                paydayCountdown // New
             };
         }
     }).mount('#app');
