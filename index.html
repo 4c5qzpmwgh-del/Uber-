@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber 財務管家 v3.0</title>
+    <title>Uber 財務管家 v3.1</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -82,12 +82,16 @@
             </div>
             
             <div class="col-span-2 p-4 rounded-2xl border text-center transition-colors shadow-sm bg-white"
-                 :class="currentStats.walletBalance < 0 ? 'border-red-400 bg-red-50' : 'border-green-400 bg-green-50'">
-                <div class="text-sm font-bold mb-1" :class="currentStats.walletBalance < 0 ? 'text-red-600' : 'text-green-600'">
-                    {{ currentStats.walletBalance < 0 ? '⚠️ 需匯回 Uber' : '✅ Uber 下週匯款' }}
+                 :class="cumulativeWalletBalance < 0 ? 'border-red-400 bg-red-50' : 'border-green-400 bg-green-50'">
+                <div class="text-sm font-bold mb-1" :class="cumulativeWalletBalance < 0 ? 'text-red-600' : 'text-green-600'">
+                    <i v-if="cumulativeWalletBalance < 0" class="fas fa-exclamation-triangle mr-1"></i>
+                    {{ cumulativeWalletBalance < 0 ? '⚠️ 需匯回 Uber (累計總額)' : '✅ Uber 錢包總餘額' }}
                 </div>
-                <div class="text-2xl font-bold font-mono" :class="currentStats.walletBalance < 0 ? 'text-red-700' : 'text-green-700'">
-                    ${{ formatNumber(Math.abs(currentStats.walletBalance)) }}
+                <div class="text-4xl font-bold font-mono my-2" :class="cumulativeWalletBalance < 0 ? 'text-red-700' : 'text-green-700'">
+                    ${{ formatNumber(Math.abs(cumulativeWalletBalance)) }}
+                </div>
+                 <div class="text-xs text-gray-500">
+                    {{ cumulativeWalletBalance < 0 ? '負債未歸零，請持續追蹤' : '每週一自動模擬發薪歸零' }}
                 </div>
             </div>
         </div>
@@ -296,36 +300,25 @@
                 appEarnings: '', cashCollected: '', expenses: '', orderCount: '', workHours: '' 
             });
 
-            // ---- 發薪倒數邏輯 (新功能) ----
             const paydayCountdown = ref("計算中...");
             let paydayInterval = null;
 
             const updatePayday = () => {
                 const now = new Date();
                 let target = new Date();
-                
-                // 1. 先計算本週三
-                // getDay(): 0(日), 1(一), 2(二), 3(三)...
                 const dayOfWeek = now.getDay();
                 const diffToWed = 3 - dayOfWeek; 
                 target.setDate(now.getDate() + diffToWed);
-                target.setHours(2, 0, 0, 0); // 設定為凌晨 2 點
-
-                // 2. 如果「本週三 02:00」已經過去了，目標就是「下週三」
-                if (target <= now) {
-                    target.setDate(target.getDate() + 7);
-                }
-
+                target.setHours(2, 0, 0, 0); 
+                if (target <= now) target.setDate(target.getDate() + 7);
                 const diff = target - now;
                 const d = Math.floor(diff / (1000 * 60 * 60 * 24));
                 const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
                 const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
                 const s = Math.floor((diff % (1000 * 60)) / 1000);
-
                 paydayCountdown.value = `${d}天 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             };
 
-            // ---- 跑單計時器邏輯 ----
             const timerState = reactive({ isOnline: false, startTime: null, accumulatedMs: 0 });
             const formattedElapsedTime = ref("00:00:00");
             let timerInterval = null;
@@ -343,108 +336,59 @@
                 }
             };
 
-            const saveTimerState = () => {
-                localStorage.setItem('uberTimerState_v1', JSON.stringify({ ...timerState, date: todayDate }));
-            };
-
-            const resetTimer = () => {
-                timerState.isOnline = false; timerState.startTime = null; timerState.accumulatedMs = 0;
-                formattedElapsedTime.value = "00:00:00";
-                saveTimerState();
-            };
+            const saveTimerState = () => { localStorage.setItem('uberTimerState_v1', JSON.stringify({ ...timerState, date: todayDate })); };
+            const resetTimer = () => { timerState.isOnline = false; timerState.startTime = null; timerState.accumulatedMs = 0; formattedElapsedTime.value = "00:00:00"; saveTimerState(); };
 
             const toggleTimer = () => {
                 if (!timerState.isOnline) {
-                    timerState.isOnline = true; timerState.startTime = Date.now();
-                    startTicker();
+                    timerState.isOnline = true; timerState.startTime = Date.now(); startTicker();
                 } else {
                     timerState.isOnline = false;
-                    const sessionMs = Date.now() - timerState.startTime;
-                    timerState.accumulatedMs += sessionMs;
-                    timerState.startTime = null;
-                    stopTicker();
-                    updateWorkHoursInput(); 
+                    timerState.accumulatedMs += (Date.now() - timerState.startTime);
+                    timerState.startTime = null; stopTicker(); updateWorkHoursInput(); 
                 }
                 saveTimerState();
             };
 
-            const startTicker = () => {
-                stopTicker();
-                updateDisplayTime(); 
-                timerInterval = setInterval(() => {
-                    updateDisplayTime();
-                    if (new Date().getSeconds() === 0) updateWorkHoursInput();
-                }, 1000);
-            };
-
-            const stopTicker = () => {
-                if (timerInterval) clearInterval(timerInterval);
-                updateDisplayTime();
-            };
-
+            const startTicker = () => { stopTicker(); updateDisplayTime(); timerInterval = setInterval(() => { updateDisplayTime(); if (new Date().getSeconds() === 0) updateWorkHoursInput(); }, 1000); };
+            const stopTicker = () => { if (timerInterval) clearInterval(timerInterval); updateDisplayTime(); };
             const updateDisplayTime = () => {
                 let currentSessionMs = 0;
-                if (timerState.isOnline && timerState.startTime) {
-                    currentSessionMs = Date.now() - timerState.startTime;
-                }
+                if (timerState.isOnline && timerState.startTime) currentSessionMs = Date.now() - timerState.startTime;
                 const totalMs = timerState.accumulatedMs + currentSessionMs;
-                const seconds = Math.floor((totalMs / 1000) % 60);
-                const minutes = Math.floor((totalMs / (1000 * 60)) % 60);
-                const hours = Math.floor((totalMs / (1000 * 60 * 60)));
-                formattedElapsedTime.value = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                const s = Math.floor((totalMs / 1000) % 60);
+                const m = Math.floor((totalMs / (1000 * 60)) % 60);
+                const h = Math.floor((totalMs / (1000 * 60 * 60)));
+                formattedElapsedTime.value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
             };
-
             const updateWorkHoursInput = () => {
                 let currentSessionMs = 0;
-                if (timerState.isOnline && timerState.startTime) {
-                    currentSessionMs = Date.now() - timerState.startTime;
-                }
-                const totalMs = timerState.accumulatedMs + currentSessionMs;
-                currentRecord.workHours = (totalMs / (1000 * 60 * 60)).toFixed(1);
+                if (timerState.isOnline && timerState.startTime) currentSessionMs = Date.now() - timerState.startTime;
+                currentRecord.workHours = ((timerState.accumulatedMs + currentSessionMs) / (1000 * 60 * 60)).toFixed(1);
             };
-            // --------------------
 
             const currentPeriod = ref('7'); 
             const selectedDate = ref(null); 
             const flippedCards = reactive({}); 
             const calendarYear = ref(new Date().getFullYear());
             const calendarMonth = ref(new Date().getMonth());
-
-            const periods = [
-                { label: '一週', value: '7' }, { label: '兩週', value: '14' },
-                { label: '一個月', value: '30' }, { label: '三個月', value: '90' },
-                { label: '六個月', value: '180' }, { label: '一年', value: '365' }, { label: '全部', value: 'all' }
-            ];
+            const periods = [{ label: '一週', value: '7' }, { label: '兩週', value: '14' }, { label: '一個月', value: '30' }, { label: '三個月', value: '90' }, { label: '六個月', value: '180' }, { label: '一年', value: '365' }, { label: '全部', value: 'all' }];
 
             onMounted(() => {
                 const savedHistory = JSON.parse(localStorage.getItem('uberCalcHistory_v2'));
                 if (savedHistory && Array.isArray(savedHistory)) history.value = savedHistory;
-                loadDataForTargetDate();
-                loadTimerState();
-                
-                // 啟動倒數計時
-                updatePayday();
-                paydayInterval = setInterval(updatePayday, 1000);
+                loadDataForTargetDate(); loadTimerState(); updatePayday(); paydayInterval = setInterval(updatePayday, 1000);
             });
-
-            onUnmounted(() => {
-                if (paydayInterval) clearInterval(paydayInterval);
-                if (timerInterval) clearInterval(timerInterval);
-            });
-
+            onUnmounted(() => { if (paydayInterval) clearInterval(paydayInterval); if (timerInterval) clearInterval(timerInterval); });
             watch(targetDate, () => loadDataForTargetDate());
 
             const loadDataForTargetDate = () => {
                 const data = history.value.find(h => h.date === targetDate.value);
                 if (data) {
-                    currentRecord.appEarnings = data.appEarnings;
-                    currentRecord.cashCollected = data.cashCollected;
-                    currentRecord.expenses = data.expenses;
-                    currentRecord.orderCount = data.orderCount || '';
-                    currentRecord.workHours = data.workHours || '';
+                    currentRecord.appEarnings = data.appEarnings; currentRecord.cashCollected = data.cashCollected;
+                    currentRecord.expenses = data.expenses; currentRecord.orderCount = data.orderCount || ''; currentRecord.workHours = data.workHours || '';
                 } else {
-                    currentRecord.appEarnings = ''; currentRecord.cashCollected = '';
-                    currentRecord.expenses = ''; currentRecord.orderCount = ''; currentRecord.workHours = '';
+                    currentRecord.appEarnings = ''; currentRecord.cashCollected = ''; currentRecord.expenses = ''; currentRecord.orderCount = ''; currentRecord.workHours = '';
                 }
             };
 
@@ -456,6 +400,61 @@
                 const netProfit = app - exp;
                 const hourlyWage = hrs > 0 ? Math.round(netProfit / hrs) : 0;
                 return { walletBalance: app - cash, netProfit: netProfit, hourlyWage: hourlyWage };
+            });
+
+            // ---- 核心演算法：累計錢包餘額計算 (含週一歸零/負債累積) ----
+            const cumulativeWalletBalance = computed(() => {
+                // 1. 取得所有比 targetDate 早或當天的歷史紀錄，並排序
+                const sortedHistory = history.value
+                    .filter(h => h.date <= targetDate.value)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+                
+                let balance = 0;
+                
+                if (sortedHistory.length === 0 && targetDate.value !== todayDate) return 0;
+
+                // 2. 確定開始計算的日期 (從第一筆紀錄開始，或者如果是全新使用，就從今天開始)
+                let startDateStr = sortedHistory.length > 0 ? sortedHistory[0].date : targetDate.value;
+                let currDate = new Date(startDateStr + 'T00:00:00'); 
+                const end = new Date(targetDate.value + 'T00:00:00');
+                
+                // 製作快速查找表
+                const historyMap = {};
+                sortedHistory.forEach(h => historyMap[h.date] = h);
+
+                // 3. 逐日模擬資金流動
+                while (currDate <= end) {
+                    const dateStr = currDate.toISOString().split('T')[0];
+                    const isMonday = currDate.getDay() === 1;
+
+                    // A. 週一檢查點：如果今天是週一，且餘額是正的(Uber欠你錢)，模擬發薪歸零。
+                    //    如果是負的(你欠Uber錢)，則不歸零。
+                    if (isMonday && balance > 0) {
+                        balance = 0; 
+                    }
+
+                    // B. 加入當天的交易
+                    let dailyAppEarnings = 0;
+                    let dailyCash = 0;
+
+                    if (dateStr === targetDate.value) {
+                        // 如果是「正在編輯的這一天」，使用輸入框的即時數據
+                        dailyAppEarnings = Number(currentRecord.appEarnings) || 0;
+                        dailyCash = Number(currentRecord.cashCollected) || 0;
+                    } else if (historyMap[dateStr]) {
+                        // 如果是歷史紀錄，讀取檔案
+                        dailyAppEarnings = historyMap[dateStr].appEarnings || 0;
+                        dailyCash = historyMap[dateStr].cashCollected || 0;
+                    }
+
+                    // 錢包餘額變化 = App收入(Uber給你的) - 現金(你拿走的)
+                    balance += (dailyAppEarnings - dailyCash);
+
+                    // 前進下一天
+                    currDate.setDate(currDate.getDate() + 1);
+                }
+
+                return balance;
             });
 
             const saveRecord = () => {
@@ -470,9 +469,7 @@
                     workHours: Number(currentRecord.workHours) || 0,
                     timestamp: Date.now()
                 };
-                if (index !== -1) history.value[index] = newData;
-                else history.value.push(newData);
-                
+                if (index !== -1) history.value[index] = newData; else history.value.push(newData);
                 localStorage.setItem('uberCalcHistory_v2', JSON.stringify(history.value));
                 alert(`已儲存 ${targetDate.value} 的帳務！`);
             };
@@ -480,80 +477,44 @@
             const setPeriod = (val) => { currentPeriod.value = val; selectedDate.value = null; };
             const selectDate = (date) => { selectedDate.value = (selectedDate.value === date) ? null : date; };
             const clearDateSelection = () => { selectedDate.value = null; };
-
             const filteredRecords = computed(() => {
                 if (selectedDate.value) return history.value.filter(r => r.date === selectedDate.value);
                 if (currentPeriod.value === 'all') return history.value;
                 const days = parseInt(currentPeriod.value);
-                const cutoffDate = new Date();
-                cutoffDate.setDate(cutoffDate.getDate() - days);
-                const cutoffStr = cutoffDate.toISOString().split('T')[0];
+                const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+                const cutoffStr = cutoff.toISOString().split('T')[0];
                 return history.value.filter(r => r.date >= cutoffStr);
             });
-
             const sortedRecords = computed(() => [...filteredRecords.value].sort((a, b) => new Date(b.date) - new Date(a.date)));
-
             const periodStats = computed(() => {
-                const records = filteredRecords.value;
-                const totalProfit = records.reduce((sum, r) => sum + (r.appEarnings - r.expenses), 0);
-                const totalHours = records.reduce((sum, r) => sum + (r.workHours || 0), 0);
-                const totalOrders = records.reduce((sum, r) => sum + (r.orderCount || 0), 0);
-                const avgHourly = totalHours > 0 ? Math.round(totalProfit / totalHours) : 0;
-                return { totalProfit, totalHours: totalHours.toFixed(1), totalOrders, avgHourly, days: records.length };
+                const r = filteredRecords.value;
+                const tp = r.reduce((s, i) => s + (i.appEarnings - i.expenses), 0);
+                const th = r.reduce((s, i) => s + (i.workHours || 0), 0);
+                const to = r.reduce((s, i) => s + (i.orderCount || 0), 0);
+                return { totalProfit: tp, totalHours: th.toFixed(1), totalOrders: to, avgHourly: th > 0 ? Math.round(tp / th) : 0, days: r.length };
             });
-
-            const calculateHourly = (record) => {
-                const net = record.appEarnings - record.expenses;
-                const hrs = record.workHours || 0;
-                return hrs > 0 ? Math.round(net / hrs) : 0;
-            };
-
-            const calculateOrderAvg = (record) => {
-                const app = record.appEarnings || 0;
-                const count = record.orderCount || 0;
-                return count > 0 ? Math.round(app / count) : 0;
-            };
-
-            const toggleFlip = (date) => { flippedCards[date] = !flippedCards[date]; };
-            const formatNumber = (num) => num.toLocaleString();
-            const hasData = (dateStr) => history.value.some(h => h.date === dateStr);
-            
+            const calculateHourly = (r) => { const n = r.appEarnings - r.expenses; const h = r.workHours || 0; return h > 0 ? Math.round(n / h) : 0; };
+            const calculateOrderAvg = (r) => { const a = r.appEarnings || 0; const c = r.orderCount || 0; return c > 0 ? Math.round(a / c) : 0; };
+            const toggleFlip = (d) => { flippedCards[d] = !flippedCards[d]; };
+            const formatNumber = (n) => n.toLocaleString();
+            const hasData = (d) => history.value.some(h => h.date === d);
             const calendarDays = computed(() => {
-                const year = calendarYear.value; const month = calendarMonth.value;
-                const firstDayOfMonth = new Date(year, month, 1).getDay(); 
-                const daysInMonth = new Date(year, month + 1, 0).getDate();
-                const daysInPrevMonth = new Date(year, month, 0).getDate();
+                const y = calendarYear.value; const m = calendarMonth.value;
+                const fd = new Date(y, m, 1).getDay(); const dim = new Date(y, m + 1, 0).getDate(); const pd = new Date(y, m, 0).getDate();
                 let days = [];
-                for (let i = firstDayOfMonth - 1; i >= 0; i--) {
-                    const d = daysInPrevMonth - i; const m = month === 0 ? 12 : month; const y = month === 0 ? year - 1 : year;
-                    days.push({ dayNum: d, isCurrentMonth: false, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` });
-                }
-                for (let i = 1; i <= daysInMonth; i++) {
-                    days.push({ dayNum: i, isCurrentMonth: true, dateStr: `${year}-${String(month + 1).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
-                }
-                const remaining = 42 - days.length;
-                for (let i = 1; i <= remaining; i++) {
-                     const m = month === 11 ? 1 : month + 2; const y = month === 11 ? year + 1 : year;
-                    days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
-                }
+                for (let i = fd - 1; i >= 0; i--) days.push({ dayNum: pd - i, isCurrentMonth: false, dateStr: `${m===0?y-1:y}-${String(m===0?12:m).padStart(2,'0')}-${String(pd-i).padStart(2,'0')}` });
+                for (let i = 1; i <= dim; i++) days.push({ dayNum: i, isCurrentMonth: true, dateStr: `${y}-${String(m+1).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
+                const rem = 42 - days.length;
+                for (let i = 1; i <= rem; i++) days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${m===11?y+1:y}-${String(m===11?1:m+2).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
                 return days;
             });
-            const changeMonth = (delta) => {
-                let newMonth = calendarMonth.value + delta;
-                if (newMonth > 11) { calendarMonth.value = 0; calendarYear.value++; } 
-                else if (newMonth < 0) { calendarMonth.value = 11; calendarYear.value--; } 
-                else { calendarMonth.value = newMonth; }
-            };
+            const changeMonth = (d) => { let nm = calendarMonth.value + d; if (nm > 11) { calendarMonth.value = 0; calendarYear.value++; } else if (nm < 0) { calendarMonth.value = 11; calendarYear.value--; } else { calendarMonth.value = nm; } };
 
             return {
-                currentTab, todayDate, targetDate, currentRecord, currentStats, saveRecord,
-                history, periods, currentPeriod, setPeriod,
-                selectedDate, selectDate, clearDateSelection,
-                filteredRecords, sortedRecords, periodStats,
-                calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
-                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg,
-                timerState, toggleTimer, formattedElapsedTime,
-                paydayCountdown // New
+                currentTab, todayDate, targetDate, currentRecord, currentStats, cumulativeWalletBalance, // 新增的計算屬性
+                saveRecord, history, periods, currentPeriod, setPeriod, selectedDate, selectDate, clearDateSelection,
+                filteredRecords, sortedRecords, periodStats, calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
+                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg, timerState, toggleTimer, formattedElapsedTime, paydayCountdown
             };
         }
     }).mount('#app');
