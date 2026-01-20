@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber 財務管家 v3.1</title>
+    <title>Uber 財務管家 v3.2 (即時版)</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -402,19 +402,27 @@
                 return { walletBalance: app - cash, netProfit: netProfit, hourlyWage: hourlyWage };
             });
 
-            // ---- 核心演算法：累計錢包餘額計算 (含週一歸零/負債累積) ----
+            // ---- 即時運算核心 (Fix: 混合歷史數據 + 當前輸入框數據) ----
             const cumulativeWalletBalance = computed(() => {
-                // 1. 取得所有比 targetDate 早或當天的歷史紀錄，並排序
+                // 1. 取得所有比 targetDate 早的歷史紀錄
+                // (注意：我們不直接取 history 中等於 targetDate 的資料，因為我們要用 input 裡最新的)
                 const sortedHistory = history.value
                     .filter(h => h.date <= targetDate.value)
                     .sort((a, b) => new Date(a.date) - new Date(b.date));
                 
-                let balance = 0;
+                // 如果是新的一天且完全沒歷史，直接算今天的
+                if (sortedHistory.length === 0 && targetDate.value === todayDate) {
+                    const todayApp = Number(currentRecord.appEarnings) || 0;
+                    const todayCash = Number(currentRecord.cashCollected) || 0;
+                    return todayApp - todayCash;
+                }
                 
-                if (sortedHistory.length === 0 && targetDate.value !== todayDate) return 0;
-
-                // 2. 確定開始計算的日期 (從第一筆紀錄開始，或者如果是全新使用，就從今天開始)
+                // 2. 確定計算起點
                 let startDateStr = sortedHistory.length > 0 ? sortedHistory[0].date : targetDate.value;
+                
+                // 為了保險，如果 targetDate 比歷史紀錄最早還早，就用 targetDate 當起點
+                if (startDateStr > targetDate.value) startDateStr = targetDate.value;
+
                 let currDate = new Date(startDateStr + 'T00:00:00'); 
                 const end = new Date(targetDate.value + 'T00:00:00');
                 
@@ -422,13 +430,14 @@
                 const historyMap = {};
                 sortedHistory.forEach(h => historyMap[h.date] = h);
 
-                // 3. 逐日模擬資金流動
+                let balance = 0;
+
+                // 3. 逐日模擬 (包含 Live Data 注入)
                 while (currDate <= end) {
                     const dateStr = currDate.toISOString().split('T')[0];
                     const isMonday = currDate.getDay() === 1;
 
-                    // A. 週一檢查點：如果今天是週一，且餘額是正的(Uber欠你錢)，模擬發薪歸零。
-                    //    如果是負的(你欠Uber錢)，則不歸零。
+                    // A. 週一檢查點 (先結算之前的)
                     if (isMonday && balance > 0) {
                         balance = 0; 
                     }
@@ -438,19 +447,16 @@
                     let dailyCash = 0;
 
                     if (dateStr === targetDate.value) {
-                        // 如果是「正在編輯的這一天」，使用輸入框的即時數據
+                        // 【關鍵修改】：如果是現在選到的日期，強制使用 Input 的值 (即時反應)
                         dailyAppEarnings = Number(currentRecord.appEarnings) || 0;
                         dailyCash = Number(currentRecord.cashCollected) || 0;
                     } else if (historyMap[dateStr]) {
-                        // 如果是歷史紀錄，讀取檔案
+                        // 如果是歷史紀錄
                         dailyAppEarnings = historyMap[dateStr].appEarnings || 0;
                         dailyCash = historyMap[dateStr].cashCollected || 0;
                     }
 
-                    // 錢包餘額變化 = App收入(Uber給你的) - 現金(你拿走的)
                     balance += (dailyAppEarnings - dailyCash);
-
-                    // 前進下一天
                     currDate.setDate(currDate.getDate() + 1);
                 }
 
