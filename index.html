@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Uber Eats 財務管家 Pro Max</title>
+    <title>Uber 財務管家 Pro Max</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -12,52 +12,25 @@
         .input-field { font-size: 16px !important; } 
         
         /* 翻轉卡片特效 */
-        .flip-card {
-            background-color: transparent;
-            perspective: 1000px;
-            height: 160px; 
-            cursor: pointer;
-        }
-        .flip-card-inner {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            text-align: center;
-            transition: transform 0.6s;
-            transform-style: preserve-3d;
-        }
-        .flip-card.flipped .flip-card-inner {
-            transform: rotateY(180deg);
-        }
-        .flip-card-front, .flip-card-back {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            -webkit-backface-visibility: hidden;
-            backface-visibility: hidden;
-            border-radius: 0.75rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        .flip-card-front {
-            background-color: white;
-            color: black;
-            border: 1px solid #f3f4f6;
-        }
-        .flip-card-back {
-            background-color: #f8fafc;
-            transform: rotateY(180deg);
-            border: 2px solid #e2e8f0;
-        }
+        .flip-card { background-color: transparent; perspective: 1000px; height: 160px; cursor: pointer; }
+        .flip-card-inner { position: relative; width: 100%; height: 100%; text-align: center; transition: transform 0.6s; transform-style: preserve-3d; }
+        .flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back { position: absolute; width: 100%; height: 100%; -webkit-backface-visibility: hidden; backface-visibility: hidden; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; justify-content: center; align-items: center; }
+        .flip-card-front { background-color: white; color: black; border: 1px solid #f3f4f6; }
+        .flip-card-back { background-color: #f8fafc; transform: rotateY(180deg); border: 2px solid #e2e8f0; }
         
-        /* 日曆樣式 */
+        /* 日曆與動畫 */
         .calendar-day { aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 0.8rem; cursor: pointer; position: relative;}
         .has-data::after { content: ''; position: absolute; bottom: 2px; width: 4px; height: 4px; background-color: #10b981; border-radius: 50%; }
         .selected-day { background-color: #2563eb !important; color: white !important; }
         .today-mark { border: 2px solid #2563eb; }
+        
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .timer-active { animation: pulse-green 2s infinite; }
     </style>
 </head>
 <body>
@@ -106,16 +79,35 @@
 
         <div class="bg-white p-5 rounded-2xl shadow-sm space-y-4">
             
+            <div v-if="targetDate === todayDate" class="w-full">
+                <button @click="toggleTimer" 
+                        class="w-full py-4 rounded-xl font-bold text-white shadow-md transition-all flex items-center justify-center text-xl relative overflow-hidden"
+                        :class="timerState.isOnline ? 'bg-red-500 hover:bg-red-600 timer-active' : 'bg-emerald-500 hover:bg-emerald-600'">
+                    
+                    <span v-if="timerState.isOnline" class="flex items-center">
+                        <i class="fas fa-pause-circle mr-2"></i> 下線休息
+                    </span>
+                    <span v-else class="flex items-center">
+                        <i class="fas fa-play-circle mr-2"></i> 上線開跑
+                    </span>
+                </button>
+                
+                <div class="mt-2 text-center flex justify-between items-center bg-gray-50 p-2 rounded-lg">
+                    <span class="text-xs text-gray-400">當前狀態: {{ timerState.isOnline ? '🟢 在線中' : '⚪️ 離線' }}</span>
+                    <span class="font-mono text-xl font-bold text-gray-700">{{ formattedElapsedTime }}</span>
+                </div>
+            </div>
+
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-gray-700 text-xs font-bold mb-1">訂單數</label>
+                    <label class="block text-gray-700 text-xs font-bold mb-1">今日單數</label>
                     <div class="relative">
                         <input type="number" v-model.number="currentRecord.orderCount" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-lg font-mono text-center focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0">
                         <span class="absolute right-3 top-3 text-gray-400 text-xs">單</span>
                     </div>
                 </div>
                 <div>
-                    <label class="block text-gray-700 text-xs font-bold mb-1">上線時數</label>
+                    <label class="block text-gray-700 text-xs font-bold mb-1">累計時數</label>
                     <div class="relative">
                         <input type="number" v-model.number="currentRecord.workHours" step="0.1" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-lg font-mono text-center focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.0">
                         <span class="absolute right-3 top-3 text-gray-400 text-xs">hr</span>
@@ -216,7 +208,6 @@
                     <div class="flip-card-front">
                         <div class="absolute top-3 left-4 text-xs font-bold text-gray-400">{{ record.date }}</div>
                         <div class="absolute top-3 right-4 text-xs text-gray-400"><i class="fas fa-hand-pointer animate-pulse"></i></div>
-                        
                         <div class="text-center w-full px-6">
                             <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">今日淨利</div>
                             <div class="text-3xl font-bold text-gray-800 font-mono mb-2">${{ formatNumber(record.appEarnings - record.expenses) }}</div>
@@ -225,7 +216,6 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="flip-card-back p-3 flex flex-col justify-between items-center text-sm">
                          <div class="w-full flex justify-between items-center border-b pb-1 mb-1">
                             <span class="font-bold text-gray-700">{{ record.date }}</span>
@@ -278,25 +268,121 @@
 </div>
 
 <script>
-    const { createApp, ref, computed, onMounted, reactive, watch } = Vue;
+    const { createApp, ref, computed, onMounted, reactive, watch, onUnmounted } = Vue;
 
     createApp({
         setup() {
             const currentTab = ref('record'); 
             const todayDate = new Date().toISOString().split('T')[0];
-            
-            // 核心變數：當前操作的目標日期 (預設今天)
             const targetDate = ref(todayDate);
-            
             const history = ref([]); 
+
             const currentRecord = reactive({
-                appEarnings: '',
-                cashCollected: '',
-                expenses: '',
-                orderCount: '',
-                workHours: '' 
+                appEarnings: '', cashCollected: '', expenses: '', orderCount: '', workHours: '' 
             });
 
+            // ---- 計時器邏輯 ----
+            const timerState = reactive({
+                isOnline: false,
+                startTime: null,      // 按下開始的 timestamp
+                accumulatedMs: 0,     // 之前已經跑過的累積毫秒數 (分段跑用)
+            });
+            const formattedElapsedTime = ref("00:00:00");
+            let timerInterval = null;
+
+            // 初始化計時器狀態
+            const loadTimerState = () => {
+                const saved = JSON.parse(localStorage.getItem('uberTimerState_v1'));
+                if (saved && saved.date === todayDate) {
+                    timerState.isOnline = saved.isOnline;
+                    timerState.startTime = saved.startTime;
+                    timerState.accumulatedMs = saved.accumulatedMs;
+                    if (timerState.isOnline) startTicker();
+                    else updateDisplayTime();
+                } else {
+                    // 如果是新的一天，重置計時器
+                    resetTimer();
+                }
+            };
+
+            const saveTimerState = () => {
+                localStorage.setItem('uberTimerState_v1', JSON.stringify({
+                    ...timerState,
+                    date: todayDate
+                }));
+            };
+
+            const resetTimer = () => {
+                timerState.isOnline = false;
+                timerState.startTime = null;
+                timerState.accumulatedMs = 0;
+                formattedElapsedTime.value = "00:00:00";
+                saveTimerState();
+            };
+
+            const toggleTimer = () => {
+                if (!timerState.isOnline) {
+                    // 開始計時
+                    timerState.isOnline = true;
+                    timerState.startTime = Date.now();
+                    startTicker();
+                } else {
+                    // 暫停計時 (下線)
+                    timerState.isOnline = false;
+                    const sessionMs = Date.now() - timerState.startTime;
+                    timerState.accumulatedMs += sessionMs;
+                    timerState.startTime = null;
+                    stopTicker();
+                    // 停止時自動將小時數填入 input
+                    updateWorkHoursInput(); 
+                }
+                saveTimerState();
+            };
+
+            const startTicker = () => {
+                stopTicker();
+                updateDisplayTime(); // 立即更新一次
+                timerInterval = setInterval(() => {
+                    updateDisplayTime();
+                    // 在計時過程中，每分鐘也自動更新一次 input 欄位，讓預估時薪可以跳動
+                    if (new Date().getSeconds() === 0) updateWorkHoursInput();
+                }, 1000);
+            };
+
+            const stopTicker = () => {
+                if (timerInterval) clearInterval(timerInterval);
+                updateDisplayTime();
+            };
+
+            const updateDisplayTime = () => {
+                let currentSessionMs = 0;
+                if (timerState.isOnline && timerState.startTime) {
+                    currentSessionMs = Date.now() - timerState.startTime;
+                }
+                const totalMs = timerState.accumulatedMs + currentSessionMs;
+                
+                // 轉換為 HH:MM:SS
+                const seconds = Math.floor((totalMs / 1000) % 60);
+                const minutes = Math.floor((totalMs / (1000 * 60)) % 60);
+                const hours = Math.floor((totalMs / (1000 * 60 * 60)));
+
+                formattedElapsedTime.value = 
+                    `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            };
+
+            // 將時間轉換為小數點小時 (e.g., 3.5 hr) 填入輸入框
+            const updateWorkHoursInput = () => {
+                let currentSessionMs = 0;
+                if (timerState.isOnline && timerState.startTime) {
+                    currentSessionMs = Date.now() - timerState.startTime;
+                }
+                const totalMs = timerState.accumulatedMs + currentSessionMs;
+                // 轉換為小時，保留一位小數
+                currentRecord.workHours = (totalMs / (1000 * 60 * 60)).toFixed(1);
+            };
+            // --------------------
+
+            // 統計與其他邏輯
             const currentPeriod = ref('7'); 
             const selectedDate = ref(null); 
             const flippedCards = reactive({}); 
@@ -304,28 +390,20 @@
             const calendarMonth = ref(new Date().getMonth());
 
             const periods = [
-                { label: '一週', value: '7' },
-                { label: '兩週', value: '14' },
-                { label: '一個月', value: '30' },
-                { label: '三個月', value: '90' },
-                { label: '六個月', value: '180' },
-                { label: '一年', value: '365' },
-                { label: '全部', value: 'all' }
+                { label: '一週', value: '7' }, { label: '兩週', value: '14' },
+                { label: '一個月', value: '30' }, { label: '三個月', value: '90' },
+                { label: '六個月', value: '180' }, { label: '一年', value: '365' }, { label: '全部', value: 'all' }
             ];
 
-            // 載入歷史資料
             onMounted(() => {
                 const savedHistory = JSON.parse(localStorage.getItem('uberCalcHistory_v2'));
-                if (savedHistory && Array.isArray(savedHistory)) {
-                    history.value = savedHistory;
-                }
-                loadDataForTargetDate(); // 初始載入
+                if (savedHistory && Array.isArray(savedHistory)) history.value = savedHistory;
+                
+                loadDataForTargetDate();
+                loadTimerState(); // 載入計時器
             });
 
-            // 當 targetDate 改變時，自動載入該日資料 (或清空)
-            watch(targetDate, () => {
-                loadDataForTargetDate();
-            });
+            watch(targetDate, () => loadDataForTargetDate());
 
             const loadDataForTargetDate = () => {
                 const data = history.value.find(h => h.date === targetDate.value);
@@ -336,16 +414,11 @@
                     currentRecord.orderCount = data.orderCount || '';
                     currentRecord.workHours = data.workHours || '';
                 } else {
-                    // 該日無資料，清空欄位
-                    currentRecord.appEarnings = '';
-                    currentRecord.cashCollected = '';
-                    currentRecord.expenses = '';
-                    currentRecord.orderCount = '';
-                    currentRecord.workHours = '';
+                    currentRecord.appEarnings = ''; currentRecord.cashCollected = '';
+                    currentRecord.expenses = ''; currentRecord.orderCount = ''; currentRecord.workHours = '';
                 }
             };
 
-            // 計算當前操作日期的即時數據
             const currentStats = computed(() => {
                 const app = Number(currentRecord.appEarnings) || 0;
                 const cash = Number(currentRecord.cashCollected) || 0;
@@ -355,19 +428,11 @@
                 const netProfit = app - exp;
                 const hourlyWage = hrs > 0 ? Math.round(netProfit / hrs) : 0;
 
-                return {
-                    walletBalance: app - cash,
-                    netProfit: netProfit,
-                    hourlyWage: hourlyWage
-                };
+                return { walletBalance: app - cash, netProfit: netProfit, hourlyWage: hourlyWage };
             });
 
             const saveRecord = () => {
-                if (!targetDate.value) {
-                    alert('請選擇日期');
-                    return;
-                }
-                
+                if (!targetDate.value) return;
                 const index = history.value.findIndex(h => h.date === targetDate.value);
                 const newData = {
                     date: targetDate.value,
@@ -378,18 +443,13 @@
                     workHours: Number(currentRecord.workHours) || 0,
                     timestamp: Date.now()
                 };
-
-                if (index !== -1) {
-                    history.value[index] = newData; // Update
-                } else {
-                    history.value.push(newData); // Insert
-                }
+                if (index !== -1) history.value[index] = newData;
+                else history.value.push(newData);
                 
                 localStorage.setItem('uberCalcHistory_v2', JSON.stringify(history.value));
                 alert(`已儲存 ${targetDate.value} 的帳務！`);
             };
 
-            // ---- 統計與篩選邏輯 (不變) ----
             const setPeriod = (val) => { currentPeriod.value = val; selectedDate.value = null; };
             const selectDate = (date) => { selectedDate.value = (selectedDate.value === date) ? null : date; };
             const clearDateSelection = () => { selectedDate.value = null; };
@@ -430,19 +490,16 @@
             const toggleFlip = (date) => { flippedCards[date] = !flippedCards[date]; };
             const formatNumber = (num) => num.toLocaleString();
             const hasData = (dateStr) => history.value.some(h => h.date === dateStr);
-
-            // ---- 日曆產生器 (不變) ----
+            
+            // 日曆與組件
             const calendarDays = computed(() => {
-                const year = calendarYear.value;
-                const month = calendarMonth.value;
+                const year = calendarYear.value; const month = calendarMonth.value;
                 const firstDayOfMonth = new Date(year, month, 1).getDay(); 
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 const daysInPrevMonth = new Date(year, month, 0).getDate();
                 let days = [];
                 for (let i = firstDayOfMonth - 1; i >= 0; i--) {
-                    const d = daysInPrevMonth - i;
-                    const m = month === 0 ? 12 : month;
-                    const y = month === 0 ? year - 1 : year;
+                    const d = daysInPrevMonth - i; const m = month === 0 ? 12 : month; const y = month === 0 ? year - 1 : year;
                     days.push({ dayNum: d, isCurrentMonth: false, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` });
                 }
                 for (let i = 1; i <= daysInMonth; i++) {
@@ -450,8 +507,7 @@
                 }
                 const remaining = 42 - days.length;
                 for (let i = 1; i <= remaining; i++) {
-                     const m = month === 11 ? 1 : month + 2;
-                     const y = month === 11 ? year + 1 : year;
+                     const m = month === 11 ? 1 : month + 2; const y = month === 11 ? year + 1 : year;
                     days.push({ dayNum: i, isCurrentMonth: false, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(i).padStart(2,'0')}` });
                 }
                 return days;
@@ -469,7 +525,9 @@
                 selectedDate, selectDate, clearDateSelection,
                 filteredRecords, sortedRecords, periodStats,
                 calendarYear, calendarMonth, calendarDays, changeMonth, hasData,
-                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg
+                flippedCards, toggleFlip, formatNumber, calculateHourly, calculateOrderAvg,
+                // New
+                timerState, toggleTimer, formattedElapsedTime
             };
         }
     }).mount('#app');
